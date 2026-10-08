@@ -1,0 +1,141 @@
+name: rust_webhook
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rust_webhook_backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      PORT: "8000"
+      RUST_LOG: "${RUST_LOG:-info,rust_webhook=debug}"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rust_webhook}"
+      REDIS_URL: "redis://redis:6379"
+    volumes:
+      - ./backend:/app
+      - backend_target:/app/target
+      - cargo_cache:/usr/local/cargo/registry
+      - cargo_git:/usr/local/cargo/git
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  webhook-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["cargo", "watch", "-x", "run --bin webhook-worker"]
+    environment:
+      RUST_LOG: "${RUST_LOG:-info,rust_webhook=debug}"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rust_webhook}"
+      REDIS_URL: "redis://redis:6379"
+      DELIVERY_CONCURRENCY: "${DELIVERY_CONCURRENCY:-10}"
+      DELIVERY_HTTP_TIMEOUT_SECS: "${DELIVERY_HTTP_TIMEOUT_SECS:-30}"
+      DELIVERY_BACKOFF_BASE_SECS: "${DELIVERY_BACKOFF_BASE_SECS:-5}"
+      DELIVERY_BACKOFF_MAX_SECS: "${DELIVERY_BACKOFF_MAX_SECS:-300}"
+      DELIVERY_BACKOFF_JITTER_PERCENT: "${DELIVERY_BACKOFF_JITTER_PERCENT:-20}"
+      DELIVERY_POLL_INTERVAL_MS: "${DELIVERY_POLL_INTERVAL_MS:-1000}"
+      DELIVERY_RECONCILE_INTERVAL_SECS: "${DELIVERY_RECONCILE_INTERVAL_SECS:-60}"
+      DELIVERY_BATCH_SIZE: "${DELIVERY_BATCH_SIZE:-100}"
+    volumes:
+      - ./backend:/app
+      - backend_target:/app/target
+      - cargo_cache:/usr/local/cargo/registry
+      - cargo_git:/usr/local/cargo/git
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rust_webhook_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      NODE_ENV: development
+      VITE_BACKEND_URL: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+  postgres:
+    image: postgres:17.4-alpine
+    container_name: rust_webhook_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-rust_webhook}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-rust_webhook}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 3s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: rust_webhook_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 2s
+
+  pgadmin:
+    image: dpage/pgadmin4:9.1
+    container_name: rust_webhook_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    name: rust_webhook_postgres_data
+  redis_data:
+    name: rust_webhook_redis_data
+  pgadmin_data:
+    name: rust_webhook_pgadmin_data
+  backend_target:
+    name: rust_webhook_backend_target
+  cargo_cache:
+    name: rust_webhook_cargo_cache
+  cargo_git:
+    name: rust_webhook_cargo_git
+  frontend_node_modules:
+    name: rust_webhook_frontend_node_modules

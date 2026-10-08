@@ -1,0 +1,23 @@
+# Rust
+target/
+**/*.rs.bk
+*.bk
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+
+# Environment variables
+.env
+
+# Docker data / volumes
+data/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

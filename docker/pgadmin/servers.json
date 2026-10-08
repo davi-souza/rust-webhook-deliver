@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "RustWebhook PostgreSQL",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "rust_webhook",
+      "Username": "postgres",
+      "SSLMode": "prefer"
+    }
+  }
+}
